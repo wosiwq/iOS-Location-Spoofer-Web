@@ -24,10 +24,13 @@ export async function onRequestGet({ request, env }) {
   const timeout = setTimeout(() => controller.abort(), 8000);
   try {
     const response = await fetch(url, { signal: controller.signal, redirect: 'error' });
-    if (!response.ok) return errorResponse('search provider unavailable', 502);
+    if (!response.ok) {
+      return jsonResponse({ error: 'search provider unavailable', upstreamStatus: response.status }, 502);
+    }
     const data = await response.json();
     if (data.status !== '1' || !Array.isArray(data.tips)) {
-      return errorResponse('search provider unavailable', 502);
+      const providerCode = /^\d{5}$/.test(data.infocode) ? data.infocode : 'unknown';
+      return jsonResponse({ error: 'search provider unavailable', providerCode }, 502);
     }
     // Return only fields used by the panel, never upstream diagnostics or URLs.
     const tips = data.tips.slice(0, 20).map(tip => ({
@@ -37,8 +40,10 @@ export async function onRequestGet({ request, env }) {
       location: typeof tip.location === 'string' ? tip.location : ''
     }));
     return jsonResponse({ status: '1', tips });
-  } catch {
-    return errorResponse('search provider unavailable', 502);
+  } catch (error) {
+    const reason = error.name === 'AbortError' ? 'timeout'
+      : error.name === 'SyntaxError' ? 'invalid response' : 'request failed';
+    return jsonResponse({ error: 'search provider unavailable', reason }, 502);
   } finally {
     clearTimeout(timeout);
   }
