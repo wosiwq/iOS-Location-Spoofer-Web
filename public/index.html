@@ -1121,7 +1121,7 @@ html.dark #search-results::-webkit-scrollbar-thumb {
 /* ─── Runtime config injected by server ─────────────────── */
 var CFG = window.__CFG__ || {};
 var HAS_TOKEN = CFG.hasToken === true;
-var AMAP_KEY = CFG.amapKey || '';
+var HAS_AMAP = CFG.hasAmap === true;
 var API = function(p){ 
   var t = localStorage.getItem('gps_token') || '';
   return p + (t ? '?token=' + encodeURIComponent(t) : ''); 
@@ -1159,7 +1159,7 @@ var GCJ = (function(){
 })();
 
 /* ─── State ──────────────────────────────────────────────── */
-var map, currentLayer=(AMAP_KEY?'amap':'osm');
+var map, currentLayer=(HAS_AMAP?'amap':'osm');
 var WGS={lat:39.90872,lng:116.39748}; // current center in WGS-84
 var lockedWGS=null;                   // last saved to server
 var altitude=null,hacc=39,vacc=1000;
@@ -1379,9 +1379,11 @@ function doSearch(){
   box.innerHTML='<div class="result-row"><span class="name">搜索中…</span></div>';
   box.style.display='block';
 
-  if (AMAP_KEY) {
-    fetch('https://restapi.amap.com/v3/assistant/inputtips?keywords='+encodeURIComponent(q)+'&key='+AMAP_KEY)
-      .then(function(r){return r.json();})
+  if (HAS_AMAP) {
+    var searchUrl = new URL(API('/search'), window.location.origin);
+    searchUrl.searchParams.set('keywords', q);
+    fetch(searchUrl.toString())
+      .then(function(r){if(!r.ok)throw new Error('Search failed');return r.json();})
       .then(function(d){
         box.innerHTML='';
         if(d.status !== '1' || !d.tips || !d.tips.length){
@@ -1895,7 +1897,7 @@ handleAuthentication(function(activeToken) {
     });
 });
 
-if (!AMAP_KEY) {
+if (!HAS_AMAP) {
   $id('search-input').placeholder = '搜索地点 (国内搜索建议配置高德 Key)';
 }
 
