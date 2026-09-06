@@ -17,9 +17,9 @@ export async function onRequestGet(context) {
   }
 
   const hasToken = Boolean(env.TOKEN);
-  const amapKey = env.AMAP_KEY || '';
+  const hasAmap = Boolean(env.AMAP_KEY);
 
-  const configScript = `<script>window.__CFG__=${JSON.stringify({ hasToken, amapKey })};</script>`;
+  const configScript = `<script>window.__CFG__=${JSON.stringify({ hasToken, hasAmap })};</script>`;
 
   // Use HTMLRewriter to inject the config script just before the closing </head> tag
   return new HTMLRewriter()
