@@ -65,6 +65,14 @@
       return out;
     },
 
+    equal: function (left, right) {
+      if (left.length !== right.length) return false;
+      for (var i = 0; i < left.length; i += 1) {
+        if (left[i] !== right[i]) return false;
+      }
+      return true;
+    },
+
     hasPrefix: function (source, prefix) {
       if (!source || !prefix || source.length < prefix.length) {
         return false;
@@ -518,15 +526,20 @@
     var parts = [];
     var wifiCount = 0;
     var cellCount = 0;
+    var entityCount = 0;
 
     for (var i = 0; i < fields.length; i += 1) {
       var f = fields[i];
       if (f.fieldNumber === 2 && f.wireType === 2) {
-        parts.push(ProtobufEngine.makeLengthDelimitedField(2, patchWifiEntity(f.valueBytes, config)));
-        wifiCount += 1;
+        var wifi = patchWifiEntity(f.valueBytes, config);
+        parts.push(ProtobufEngine.makeLengthDelimitedField(2, wifi));
+        entityCount += 1;
+        if (!ByteUtils.equal(f.valueBytes, wifi)) wifiCount += 1;
       } else if (CELL_RESPONSE_TAGS[f.fieldNumber] && f.wireType === 2) {
-        parts.push(ProtobufEngine.makeLengthDelimitedField(f.fieldNumber, patchCellEntity(f.valueBytes, config)));
-        cellCount += 1;
+        var cell = patchCellEntity(f.valueBytes, config);
+        parts.push(ProtobufEngine.makeLengthDelimitedField(f.fieldNumber, cell));
+        entityCount += 1;
+        if (!ByteUtils.equal(f.valueBytes, cell)) cellCount += 1;
       } else {
         // 关键：其余根级字段（包括 3, 4, 33 等）全量原样透传，不丢弃！
         parts.push(f.raw);
@@ -536,7 +549,8 @@
     return {
       payload: ByteUtils.concat(parts),
       wifiCount: wifiCount,
-      cellCount: cellCount
+      cellCount: cellCount,
+      entityCount: entityCount
     };
   }
 
@@ -672,6 +686,15 @@
 
     if (extraction) {
       var patched = patchWlocPayload(extraction.payload, config);
+      if (patched.entityCount > 0 && patched.wifiCount === 0 && patched.cellCount === 0) {
+        return {
+          response: responseBytes,
+          payload: extraction.payload,
+          wifiCount: 0,
+          cellCount: 0,
+          kind: extraction.kind
+        };
+      }
       if (patched.wifiCount > 0 || patched.cellCount > 0) {
         var finalResponse;
         if (extraction.kind === "arpc") {
@@ -816,20 +839,24 @@
     }
 
     function completeResponse(bodyBytes, wifiCount, cellCount) {
-      var headers = ($response && $response.headers) ? $response.headers : {};
-      delete headers["Content-Encoding"];
-      delete headers["content-encoding"];
+      var headers = {};
+      var originalHeaders = $response.headers || {};
+      for (var name in originalHeaders) {
+        if (!Object.prototype.hasOwnProperty.call(originalHeaders, name)) continue;
+        var lowerName = name.toLowerCase();
+        if (lowerName !== "content-encoding" && lowerName !== "content-length") {
+          headers[name] = originalHeaders[name];
+        }
+      }
       headers["Content-Length"] = String(bodyBytes.length);
       headers["X-Location-Spoofer"] = "active";
       headers["X-Location-Spoofer-Wifi"] = String(wifiCount);
       headers["X-Location-Spoofer-Cell"] = String(cellCount);
 
       $done({
-        response: {
-          status: 200,
-          headers: headers,
-          body: bodyBytes
-        }
+        status: $response.status || 200,
+        headers: headers,
+        body: bodyBytes
       });
     }
 
@@ -842,6 +869,13 @@
         }
 
         var result = spoofAppleResponse(rawBody, activeConfig);
+        if (result.wifiCount === 0 && result.cellCount === 0) {
+          if (activeConfig.debug) {
+            console.log("[Location Spoofer] No coordinate changes. Format: " + result.kind);
+          }
+          passThrough();
+          return;
+        }
         if (activeConfig.debug) {
           console.log("[Location Spoofer] Patched " + result.wifiCount + " Wi-Fi, " + result.cellCount + " Cell. Format: " + result.kind);
         }
@@ -854,11 +888,9 @@
           passThrough();
         } else {
           $done({
-            response: {
-              status: "HTTP/1.1 500 Internal Server Error",
-              headers: { "Content-Type": "text/plain" },
-              body: "Location spoofing failed: " + err.message
-            }
+            status: 500,
+            headers: { "Content-Type": "text/plain" },
+            body: "Location spoofing failed: " + err.message
           });
         }
       }
