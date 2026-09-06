@@ -23,7 +23,7 @@ export async function onRequestGet({ request, env }) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
   try {
-    const response = await fetch(url, { signal: controller.signal, redirect: 'error' });
+    const response = await fetch(url.toString(), { signal: controller.signal, redirect: 'manual' });
     if (!response.ok) {
       return jsonResponse({ error: 'search provider unavailable', upstreamStatus: response.status }, 502);
     }
